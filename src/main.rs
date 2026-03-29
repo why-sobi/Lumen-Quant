@@ -1,58 +1,36 @@
-struct ModelWeights {
-    weights: Vec<f32>,
-}
+mod loader;
+mod quant; // Include our new math module
 
-impl ModelWeights {
-    fn new(weights: Vec<f32>) -> Self {
-        Self { weights }
+use loader::ModelLoader;
+use quant::quantize_block_32;
+
+fn main() -> std::io::Result<()> {
+    let path = "weights.bin";
+    let loader = ModelLoader::open(path)?;
+
+    // 128 bytes = 32 floats (f32)
+    let block_bytes = 128;
+    let mut compressed_size = 0;
+
+    println!(">>> Quantizing {} ...", path);
+
+    for chunk in loader.chunk_iterator(block_bytes) {
+        // Convert the raw u8 bytes into f32 values
+        // Safe because our mock generator wrote f32s
+        let floats: Vec<f32> = chunk
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+            .collect();
+
+        if floats.len() == 32 {
+            let _block = quantize_block_32(&floats);
+            compressed_size += 18; // 18 bytes per BlockQ4_0
+        }
     }
 
-    fn max_weight(&self) -> f32 {
-        self.weights.iter().copied().fold(f32::MIN, |a, b| a.max(b))
-    }
+    println!("Original Size:   {} MB", loader.get_data().len() / 1024 / 1024);
+    println!("Quantized Size:  {} MB", compressed_size / 1024 / 1024);
+    println!("Compression:     8x (roughly)");
 
-    fn min_weight(&self) -> f32 {
-        self.weights.iter().copied().fold(f32::MAX, |a, b| a.min(b))
-    }
-
-    fn calculate_scale(&self) -> f32 {
-        let max = self.max_weight();
-        let min = self.min_weight();
-        if max == min { 1.0 } else { (max - min) / 255.0 }
-    }
-
-    // The core "Transformation" logic
-    fn quantize(&self) -> Vec<u8> {
-        let scale: f32 = self.calculate_scale();
-        let min:   f32 = self.min_weight();
-
-        self.weights
-            .iter()
-            .map(|&w| {
-                // Formula: (weight - min) / scale
-                let q = (w - min) / scale;
-                q.round() as u8 // Cast to unsigned 8-bit int
-            })
-            .collect() // This gathers the results back into a Vec<u8>
-    }
-}
-
-fn main() {
-    println!(">>>\t\tLUMEN-QUANT PROTOTYPE\t\t<<<");
-
-    // Mock weights (e.g., from a neural network layer)
-    let raw_data: Vec<f32>      = vec![-1.0, -0.5, 0.0, 0.5, 1.0];
-    let m_weights: ModelWeights = ModelWeights::new(raw_data);
-
-    let scale: f32 = m_weights.calculate_scale();
-    let quantized: Vec<u8> = m_weights.quantize();
-
-    println!("Scale Factor: {:.4}", scale);
-    println!("Original:  {:?}", m_weights.weights);
-    println!("Quantized: {:?}", quantized);
-    
-    // Quick verification: The first element should be 0, last should be 255
-    if let (Some(&first), Some(&last)) = (quantized.first(), quantized.last()) {
-        println!("Range Check: Min={} (expected 0), Max={} (expected 255)", first, last);
-    }
+    Ok(())
 }
