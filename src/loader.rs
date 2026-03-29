@@ -64,3 +64,8 @@ impl<'a> Iterator for ChunkIterator<'a> {
 // Some => The next method returns Some(chunk) if there is more data to read, and None when we have reached the end of the data.
 // Ok   => The function succeeded
 // Err  => The function failed with an error
+
+
+// Important Notes about ModelLoader:
+// It uses u8 instead of f32 to represent the data because it is designed to be a low-level loader, reading raw bytes from disk 
+// and then convert them to appropriate data types (like f32) in main processing loop to keep it generic and flexible for different types of data.
