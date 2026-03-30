@@ -3,10 +3,10 @@ use crate::{ quant::BlockQ4_0 };
 mod loader;
 mod quant; // Include our new math module
 mod file;
+mod benchmark;
 
 use file::lumen;
-
-mod test;
+use benchmark::test;
 
 // fn generate_mock_weights(path: &str) -> std::io::Result<()> {
 //     println!("Generating 100MB mock weights at {}...", path);
