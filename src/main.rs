@@ -1,4 +1,4 @@
-use crate::loader::ModelLoader;
+use crate::{loader::ModelLoader, quant::BlockQ4_0};
 
 mod loader;
 mod quant; // Include our new math module
@@ -26,10 +26,10 @@ fn main() -> std::io::Result<()> {
     // generate_mock_weights(path)
 
     let mut loader: ModelLoader = ModelLoader::open("weights.bin")?;
-    lumen::encode(&loader, "model_Q4_0.lumen")?;
+    lumen::encode::<BlockQ4_0>(&loader, "model_Q4_0.lumen")?;
     
     loader = ModelLoader::open("model_Q4_0.lumen")?;
-    let decoded_weights = lumen::decode(&loader)?;
+    let decoded_weights = lumen::decode::<BlockQ4_0>(&loader)?;
     println!("Decoded {} weights successfully!", decoded_weights.len());
     
     Ok(())

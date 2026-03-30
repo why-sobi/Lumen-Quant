@@ -9,14 +9,12 @@ pub trait QuantizedBlock {
     // By defining this trait, we can write generic code that operates on any quantized block type,
     // as long as it implements the QuantizedBlock trait. This is a powerful feature of Rust's type system that promotes code reuse and abstraction.
     
-    // 1. Associated Constants: 
     // These are "baked in" at compile time. 
-    // Every block type must define how many floats it eats (32) 
-    // and how many bytes it spits out (20).
-    const CHUNK_SIZE: usize; 
-    const PACKED_SIZE: usize;
+    // Every block type must define how many floats it eats 
+    // and how many bytes it spits out.
+    const CHUNK_SIZE: usize; // is in terms of number of floats
+    const PACKED_SIZE: usize; // is in terms of number of bytes after quantization (e.g., 20 for Q4_0)
 
-    // 2. Required Methods:
     // Any struct that "implements" this trait MUST have these functions.
     fn quantize(input: &[f32]) -> Self;
     fn dequantize(&self) -> [f32; 32];
