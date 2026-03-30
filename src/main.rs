@@ -2,7 +2,9 @@ use crate::loader::ModelLoader;
 
 mod loader;
 mod quant; // Include our new math module
-mod encoder;
+mod file;
+
+use file::lumen;
 
 // fn generate_mock_weights(path: &str) -> std::io::Result<()> {
 //     println!("Generating 100MB mock weights at {}...", path);
@@ -23,9 +25,12 @@ fn main() -> std::io::Result<()> {
     // let path = "weights.bin";
     // generate_mock_weights(path)
 
-    let loader: ModelLoader = ModelLoader::open("weights.bin")?;
-    let mut encoder = encoder::ModelEncoder::new("model_Q4_0.lumen")?;
-    encoder.encode_file(&loader)?;
-
+    let mut loader: ModelLoader = ModelLoader::open("weights.bin")?;
+    lumen::encode(&loader, "model_Q4_0.lumen")?;
+    
+    loader = ModelLoader::open("model_Q4_0.lumen")?;
+    let decoded_weights = lumen::decode(&loader)?;
+    println!("Decoded {} weights successfully!", decoded_weights.len());
+    
     Ok(())
 }

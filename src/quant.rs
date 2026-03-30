@@ -21,6 +21,7 @@ pub trait QuantizedBlock {
     fn quantize(input: &[f32]) -> Self;
     fn dequantize(&self) -> [f32; 32];
     fn as_bytes(&self) -> Vec<u8>;
+    fn from_bytes(bytes: &[u8]) -> Self;
 }
 
 
@@ -39,7 +40,7 @@ impl QuantizedBlock for BlockQ4_0 {
     const PACKED_SIZE: usize = 20; // 4 (scale) + 16 (weights)
     
     /// Quantizes a slice of 32 f32s into a single Q4_0 block.
-    fn quantize(input: &[f32]) -> Self {       
+    fn quantize(input: &[f32]) -> Self {
         // Since we are quantizing 32 weights into 16 bytes, we need to ensure the input slice has exactly 32 f32 values.
         assert_eq!(input.len(), 32, "Block size must be exactly 32"); 
 
@@ -118,8 +119,21 @@ impl QuantizedBlock for BlockQ4_0 {
 
     fn as_bytes(&self) -> Vec<u8> { // returns a vector of bytes representing the quantized block, which can be written to disk or transmitted over a network.
         let mut buf = Vec::with_capacity(Self::PACKED_SIZE);
+        
+        // extend_from_slice simply appends two arrays of bytes to the buffer. 
         buf.extend_from_slice(&self.scale.to_le_bytes()); // le => little endian
         buf.extend_from_slice(&self.weights);
         buf
     }
+
+    fn from_bytes(bytes: &[u8]) -> Self {
+        assert_eq!(bytes.len(), Self::PACKED_SIZE, "Invalid byte length for BlockQ4_0");
+
+        let scale = f32::from_le_bytes(bytes[0..4].try_into().unwrap());
+        let mut weights = [0u8; 16];
+        weights.copy_from_slice(&bytes[4..20]);
+        
+        BlockQ4_0 { scale, weights }
+    }
+
 }
