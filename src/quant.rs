@@ -17,41 +17,42 @@ pub trait QuantizedBlock {
 
     // Any struct that "implements" this trait MUST have these functions.
     fn quantize(input: &[f32]) -> Self;
-    fn dequantize(&self) -> [f32; 32];
+    fn dequantize(&self, output: &mut [f32]);
     fn as_bytes(&self) -> Vec<u8>;
     fn from_bytes(bytes: &[u8]) -> Self;
 }
-
 
 /// A quantized block of 32 weights.
 /// Total size: 4 bytes (f32 scale) + 16 bytes (16 * 1 byte) = 20 bytes.
 pub struct BlockQ4_0 {
     pub scale: f32,       // The scaling factor for this block
-    pub weights: [u8; 16], // 32 weights packed into 16 bytes
+    pub weights: [u8; 32], // 32 weights packed into 16 bytes
 
     // [u8; 16] means an array of u8 (unsigned 8-bit integers = 1 byte) with a fixed length of 16. 
     // we are using 1 byte to store 2 weights (4 bits each) so 16 bytes can store 32 weights.
 }
 
 impl QuantizedBlock for BlockQ4_0 {
-    const CHUNK_SIZE: usize = 32;
-    const PACKED_SIZE: usize = 20; // 4 (scale) + 16 (weights)
+    const CHUNK_SIZE: usize = 64;
+    const PACKED_SIZE: usize = 36; // 4 (scale) + 16 (weights)
+
+    // const CHUNK_SIZE: usize = 32;
+    // const PACKED_SIZE: usize = 20; // 4 (scale) + 16 (weights)
+    // also change pub weights: [u8; 16] in the struct definition to match the new packed size.
     
     /// Quantizes a slice of 32 f32s into a single Q4_0 block.
     fn quantize(input: &[f32]) -> Self {
         // Since we are quantizing 32 weights into 16 bytes, we need to ensure the input slice has exactly 32 f32 values.
-        assert_eq!(input.len(), 32, "Block size must be exactly 32"); 
+        assert_eq!(input.len(), Self::CHUNK_SIZE, "Block size must be exactly {}", Self::CHUNK_SIZE);
 
         // 1. Find Max Absolute Value
-        let mut max_abs = 0.0f32; // do not use f32::MIN because we're comparing the abs values.
-        for &val in input { // couldve used iter().copied().fold() but this is more straightforward for the 32 values.
-            if val.abs() > max_abs {
-                max_abs = val.abs();
-            }
-        }
+        let max_abs = input.iter()
+                .map(|&val| val.abs())
+                .fold(0.0f32, f32::max);
+
 
         // 2. Calculate Scale
-        let scale = max_abs / 8.0; 
+        let scale = max_abs / 8.0; // We divide by 8 because we want to map the range [-max_abs, max_abs] to [-8, 7] (4 bits)
         // !! IMPORTANT !!
         // We want to map the range [-max_abs, max_abs] to [-8, 7] (4 bits) 
         // This way a single weight (f32 => using 32 bits) can be represented as a 4-bit value (half a byte or u8/2) with a scale factor to recover the original range.
@@ -61,9 +62,9 @@ impl QuantizedBlock for BlockQ4_0 {
         let inv_scale = if scale != 0.0 { 1.0 / scale } else { 0.0 }; 
         // 3. Quantize and Pack
 
-        let mut packed_weights  = [0u8; 16]; // an array of 16 u8 values intialized to 0.
+        let mut packed_weights  = [0u8; Self::CHUNK_SIZE / 2]; // an array of 16 u8 values intialized to 0.
         
-        for i in 0..16 {
+        for i in 0..Self::CHUNK_SIZE / 2 {
             // We take two floats and pack them into one byte
             // first as i8 because we need to handle negative values (and it is the smallest signed int type) and then we will clamp it to the 4-bit range.
             let v0 = (input[i * 2] * inv_scale).round() as i8; 
@@ -91,31 +92,33 @@ impl QuantizedBlock for BlockQ4_0 {
     }
     
     /// De-quantizes a Q4_0 block back into 32 f32 weights.
-    fn dequantize(&self) -> [f32; 32] {
-        let mut output = [0.0f32; 32];
+    fn dequantize(&self, output: &mut [f32]) {
+        // Safety check: ensure the buffer is the right size
+        if output.len() != Self::CHUNK_SIZE {
+            panic!("Output buffer must be exactly {} floats", Self::CHUNK_SIZE);
+        }
+        // In a hot loop, you'd usually trust the caller, but this is safer.
         let scale = self.scale;
 
-        for i in 0..16 {
+        for i in 0..Self::CHUNK_SIZE / 2 { // 16 iterations for 32 weights
             let byte = self.weights[i];
 
-            // 1. Extract the low 4 bits (q0) and high 4 bits (q1)
+            // 1. Extract nibbles
             let mut q0 = (byte & 0x0F) as i8;
             let mut q1 = (byte >> 4) as i8;
 
-            // 2. Sign Extension Trick:
-            // If the 4th bit is 1, the number is negative. 
-            // We must "stretch" that sign to the 8-bit i8 level.
-            if q0 > 7 { q0 -= 16; } // negative values in 4 bits are represented as 8 to 15, so we subtract 16 to get the correct negative value in i8. (15 = -1 ...)
+            // 2. Sign Extension
+            if q0 > 7 { q0 -= 16; }
             if q1 > 7 { q1 -= 16; }
 
-            // 3. Scale back to f32
-            output[i * 2] = q0 as f32 * scale;
+            // 3. Write directly to the output buffer
+            output[i * 2]     = q0 as f32 * scale;
             output[i * 2 + 1] = q1 as f32 * scale;
         }
-        output
     }
 
-    fn as_bytes(&self) -> Vec<u8> { // returns a vector of bytes representing the quantized block, which can be written to disk or transmitted over a network.
+    /// Converts the quantized block into a byte array for storage or transmission.
+    fn as_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(Self::PACKED_SIZE);
         
         // extend_from_slice simply appends two arrays of bytes to the buffer. 
@@ -124,12 +127,13 @@ impl QuantizedBlock for BlockQ4_0 {
         buf
     }
 
+    /// Converts the byte array back into a quantized block.
     fn from_bytes(bytes: &[u8]) -> Self {
         assert_eq!(bytes.len(), Self::PACKED_SIZE, "Invalid byte length for BlockQ4_0");
 
         let scale = f32::from_le_bytes(bytes[0..4].try_into().unwrap());
-        let mut weights = [0u8; 16];
-        weights.copy_from_slice(&bytes[4..20]);
+        let mut weights = [0u8; Self::CHUNK_SIZE / 2]; // 16 bytes for 32 weights
+        weights.copy_from_slice(&bytes[4..Self::PACKED_SIZE]);
         
         BlockQ4_0 { scale, weights }
     }

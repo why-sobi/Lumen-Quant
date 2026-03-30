@@ -49,14 +49,22 @@ pub mod lumen {
         
         // Use T::PACKED_SIZE (e.g., 20) instead of hardcoded 20
         let num_blocks = weight_data.len() / T::PACKED_SIZE;
-        let mut all_floats = Vec::with_capacity(num_blocks * T::CHUNK_SIZE);
+        let mut all_floats = vec![0.0f32; num_blocks * T::CHUNK_SIZE]; // have to use vector here because we don't know the size at compile time, but we can calculate it based on the number of blocks and the chunk size.
+        // We are pre-allocating a vector of floats that will hold all the dequantized values. The total number of floats is the number of blocks multiplied by the chunk size (number of floats per block).
 
-        for raw_block in weight_data.chunks_exact(T::PACKED_SIZE) {
-            let block = T::from_bytes(raw_block); // You'll add this to the trait!
-            all_floats.extend_from_slice(&block.dequantize());
+        // 3. The Loop
+        for (i, raw_block) in weight_data.chunks_exact(T::PACKED_SIZE).enumerate() {
+            let block = T::from_bytes(raw_block);
+            
+            // Get the specific "window" for this block
+            let start = i * T::CHUNK_SIZE;
+            let end = start + T::CHUNK_SIZE;
+            
+            // Pass the slice directly! No block_buffer needed.
+            block.dequantize(&mut all_floats[start..end]);
         }
 
         Ok(all_floats)
-
+        
     }
 }

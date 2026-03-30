@@ -4,6 +4,7 @@
 
 use memmap2::Mmap;
 use std::fs::File;
+use safetensors::SafeTensors; // for .safetensor model files
 
 /// A high-performance loader that memory-maps model weights from disk.
 /// 
@@ -31,6 +32,32 @@ impl ModelLoader {
             pos: 0,
             size,
         }
+    }
+
+    pub fn load_from_safetensor(path: &str) -> std::io::Result<Vec<f32>> {
+        let file = File::open(path)?;
+        let mmap = unsafe { Mmap::map(&file)? };
+
+        // 1. Parse the safetensor metadata from the mmap
+        let st = SafeTensors::deserialize(&mmap)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+        let mut all_weights = Vec::new();
+
+        // 2. Iterate through all tensors in the file
+        // Note: For all-MiniLM, we just want to flatten them all into one stream
+        for name in st.names() {
+            let view = st.tensor(name)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            
+            let data = view.data();
+            
+            // 3. Convert bytes to f32 (Standard little-endian)
+            let (_, floats, _) = unsafe { data.align_to::<f32>() };
+            all_weights.extend_from_slice(floats);
+        }
+
+        Ok(all_weights)
     }
 }
 
