@@ -24,15 +24,14 @@ use benchmark::test;
 // }
 
 fn main() -> std::io::Result<()> {
-    println!("--- REAL MODEL TEST: all-MiniLM-L6-v2 ---");
-    let report = test::run_benchmark::<BlockQ4_0>("models/all-MiniLM-L6-v2.safetensors", "lumen-models/all-MiniLM-L6-v2_q4.lumen")?;
+    let mut name: String = "Nandi-Mini-150M".to_string();
+    let report = test::run_benchmark::<BlockQ4_0>(&name, &format!("models/{}.safetensors", name), &format!("lumen-models/{}_q4_0.lumen", name))?;
 
-    println!("\nFinal Report:");
-    println!("MSE Loss:        {:.8}", report.mse);
-    println!("Compression:     {:.2}x", report.compression_ratio);
-    println!("Encoding Time:   {}ms", report.encoding_time_ms);
-    println!("Decoding Time:   {}ms", report.decoding_time_ms);
+    name = "all-MiniLM-L6-v2".to_string();
+    let report2 = test::run_benchmark::<BlockQ4_0>(&name, &format!("models/{}.safetensors", name), &format!("lumen-models/{}_q4_0.lumen", name))?;
 
+    println!("{}\n", report);
+    println!("{}", report2);
 
     Ok(())
 }

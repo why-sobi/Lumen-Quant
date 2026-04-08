@@ -67,13 +67,13 @@ impl QuantizedBlock for BlockQ4_0 {
         for i in 0..Self::CHUNK_SIZE / 2 {
             // We take two floats and pack them into one byte
             // first as i8 because we need to handle negative values (and it is the smallest signed int type) and then we will clamp it to the 4-bit range.
-            let v0 = (input[i * 2] * inv_scale).round() as i8; 
-            let v1 = (input[i * 2 + 1] * inv_scale).round() as i8;
+            let v0 = (input[i * 2]     * inv_scale).round().clamp(-8.0, 7.0) as i8; 
+            let v1 = (input[i * 2 + 1] * inv_scale).round().clamp(-8.0, 7.0) as i8;
 
             // Clamp to 4-bit range (-8 to 7) & the 0x0F masks prevents any garbage bits in higher 4-bits from affecting our quantized value.
             // -8 to 7 because we want to represent both negative and positive values, and with 4 bits we can represent 16 values total (from -8 to 7).
-            let q0 = v0.clamp(-8, 7) as u8 & 0x0F; // 0x0F = 00001111 in binary, this masks the lower 4 bits to ensure we only keep the quantized value for q0.
-            let q1 = v1.clamp(-8, 7) as u8 & 0x0F; // 0x0F = 00001111 in binary, this masks the lower 4 bits to ensure we only keep the quantized value for q1.
+            let q0 = v0 as u8 & 0x0F; // 0x0F = 00001111 in binary, this masks the lower 4 bits to ensure we only keep the quantized value for q0.
+            let q1 = v1 as u8 & 0x0F; // 0x0F = 00001111 in binary, this masks the lower 4 bits to ensure we only keep the quantized value for q1.
 
             // Pack: q0 in low bits, q1 in high bits
             packed_weights[i] = q0 | (q1 << 4); // this is simply pushing q0 to the lower 4 bits and q1 to the higher 4 bits of the same byte.

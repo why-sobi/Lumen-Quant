@@ -52,7 +52,7 @@ impl<'a> Iterator for ChunkIterator<'a> {
 /// This struct ensures that we stay within RAM constraints by streaming data.
 pub struct ModelLoader {
     mmap: Mmap,
-    tensor_ranges: Vec<(usize, usize)> // (start, end) byte offsets for each tensor in safetensor (mainly) file
+    pub tensor_ranges: Vec<(usize, usize)> // (start, end) byte offsets for each tensor in safetensor (mainly) file
 }
 
 impl ModelLoader {
@@ -65,9 +65,7 @@ impl ModelLoader {
 
         match extension {
             "safetensor" | "safetensors" => {
-                // If you want to use the crate's built-in offset handling:
-                let st = SafeTensors::deserialize(&mmap) 
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{:?}", e)))?;
+                let st = SafeTensors::deserialize(&mmap).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{:?}", e)))?;
             
                 // 3. GET THE OFFSETS
                 for (_, view) in st.tensors() {
