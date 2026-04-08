@@ -12,31 +12,32 @@ pub struct QuantReport {
 
 pub fn run_benchmark<T: QuantizedBlock>(input_path: &str, output_path: &str) -> std::io::Result<QuantReport> {
     // 1. Setup
-    let loader = ModelLoader::open(input_path)?;
-    let original_bytes = loader.get_data();
-    let (_, original_floats, _) = unsafe { original_bytes.align_to::<f32>() };
-    
-    // 2. Encode (Timed)
+    let loader = ModelLoader::load(input_path)?;
+
+    let mut original_floats = Vec::new();
+    for chunk in loader.chunk_iterator(T::CHUNK_SIZE) {
+        original_floats.extend_from_slice(chunk);
+    }
+
+    // 2. Encode
     let mut start_time = Instant::now();
     let bytes_written = lumen::encode::<T>(&loader, output_path)?;
     let encoding_time = start_time.elapsed().as_millis();
 
     // 3. Decode
-    let lumen_loader = ModelLoader::open(output_path)?;
     start_time = Instant::now();
+    let lumen_loader = ModelLoader::load(output_path)?;
     let decoded_floats = lumen::decode::<T>(&lumen_loader)?;
     let decoding_time = start_time.elapsed().as_millis();
 
-    // 4. Calculate Accuracy (MSE)
-    let mut sum_sq_error = 0.0;
-    for (orig, deco) in original_floats.iter().zip(decoded_floats.iter()) {
-        let diff = orig - deco;
-        sum_sq_error += diff * diff;
-    }
-    let mse = sum_sq_error / original_floats.len() as f32;
+    // 4. Calculate Accuracy (Now lengths will match!)
+    let mse = original_floats.iter()
+        .zip(decoded_floats.iter())
+        .map(|(o, d)| (o - d).powi(2))
+        .sum::<f32>() / original_floats.len() as f32;
 
     // 5. Calculate Compression
-    let compression_ratio = (original_bytes.len() as f32) / (bytes_written as f32);
+    let compression_ratio = (original_floats.len() as f32 * 4.0) / (bytes_written as f32);
 
     Ok(QuantReport {
         mse,

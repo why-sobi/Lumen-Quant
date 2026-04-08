@@ -19,7 +19,7 @@ pub mod lumen {
 
         let mut bytes_written = 8;
 
-        for chunk in loader.chunk_iterator(T::CHUNK_SIZE * 4) { // *4 since f32 is 4 bytes and CHUNK_SIZE is in terms of number of floats
+        for chunk in loader.chunk_iterator(T::CHUNK_SIZE) { // *4 since f32 is 4 bytes and CHUNK_SIZE is in terms of number of floats (this is already handled in the chunk_iterator method, so we just pass T::CHUNK_SIZE here)
             let (_, mid, _) = unsafe { chunk.align_to::<f32>() };
             if mid.len() == T::CHUNK_SIZE {
                 let block_bytes = T::quantize(mid).as_bytes();
@@ -47,7 +47,7 @@ pub mod lumen {
 
         let weight_data = &data[8..];
         
-        // Use T::PACKED_SIZE (e.g., 20) instead of hardcoded 20
+        // Use T::PACKED_SIZE (e.g., 20) instead of hardcoded 20 to determine how many bytes to read for each block, and T::CHUNK_SIZE (e.g., 32) to determine how many floats to output for each block.
         let num_blocks = weight_data.len() / T::PACKED_SIZE;
         let mut all_floats = vec![0.0f32; num_blocks * T::CHUNK_SIZE]; // have to use vector here because we don't know the size at compile time, but we can calculate it based on the number of blocks and the chunk size.
         // We are pre-allocating a vector of floats that will hold all the dequantized values. The total number of floats is the number of blocks multiplied by the chunk size (number of floats per block).

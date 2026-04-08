@@ -25,24 +25,7 @@ use benchmark::test;
 
 fn main() -> std::io::Result<()> {
     println!("--- REAL MODEL TEST: all-MiniLM-L6-v2 ---");
-
-    // 1. Load from official Safetensors
-    let original_floats = loader::ModelLoader::load_from_safetensor("models/all-MiniLM-L6-v2.safetensors")?;
-    
-    // 2. Create a temporary raw file for our Lumen encoder
-    // (Our current encoder expects a ModelLoader pointing at a raw file)
-    let raw_path = "temp_raw_weights.bin";
-    std::fs::write(raw_path, unsafe {
-        std::slice::from_raw_parts(
-            original_floats.as_ptr() as *const u8,
-            original_floats.len() * 4,
-        )
-    })?;
-
-    // let loader = loader::ModelLoader::open(raw_path)?;
-
-    // 3. Benchmark with CHUNK_SIZE = 64
-    let report = test::run_benchmark::<BlockQ4_0>(&raw_path, "lumen-models/all-MiniLM-L6-v2_q4.lumen")?;
+    let report = test::run_benchmark::<BlockQ4_0>("models/all-MiniLM-L6-v2.safetensors", "lumen-models/all-MiniLM-L6-v2_q4.lumen")?;
 
     println!("\nFinal Report:");
     println!("MSE Loss:        {:.8}", report.mse);
@@ -50,9 +33,6 @@ fn main() -> std::io::Result<()> {
     println!("Encoding Time:   {}ms", report.encoding_time_ms);
     println!("Decoding Time:   {}ms", report.decoding_time_ms);
 
-
-    // Clean up
-    let _ = std::fs::remove_file(raw_path);
 
     Ok(())
 }
