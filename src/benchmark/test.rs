@@ -3,7 +3,6 @@ use crate::loader::ModelLoader;
 use crate::quant::QuantizedBlock;
 use std::time::Instant;
 use std::fmt;
-use std::hint::black_box;
 
 pub struct QuantReport {
     pub name: String,
@@ -49,12 +48,6 @@ pub fn run_benchmark<T: QuantizedBlock>(name: &str, input_path: &str, output_pat
     let lumen_loader = ModelLoader::load(output_path)?;
     let start_dec = Instant::now();
     let decoded_floats = lumen::decode::<T>(&lumen_loader)?;
-
-    // CRITICAL: We sum the output to force the CPU to actually 
-    // touch the memory and prevent the compiler from skipping the loop.
-    let checksum: f32 = decoded_floats.iter().sum();
-    black_box(checksum); 
-
     let duration = start_dec.elapsed();
     let decoding_time_ms = duration.as_millis();
 

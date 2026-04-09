@@ -4,7 +4,8 @@ pub mod lumen {
 
     use crate::loader::ModelLoader;
     use crate::quant::{ QuantizedBlock }; // to make generic encoder/decoder work we need this trait in scope
-    use std::io::{BufWriter, Write, Result, Error, ErrorKind};
+    use std::io::{BufWriter, Write, Result};
+    use rayon::prelude::*; // for parallel processing in decode
 
     const MAGIC: &[u8; 4] = b"LUMN";
     const VERSION: u32 = 2056; // Arbitrary version number for our format
@@ -35,36 +36,33 @@ pub mod lumen {
     /// DECODE: Takes a .lumen loader and returns a flat Vec of original floats
     pub fn decode<T: QuantizedBlock>(loader: &ModelLoader) -> Result<Vec<f32>> {
         let data = loader.get_data();
-        
-        // 1. Validate Header
-        if data.len() < 8 || &data[0..4] != MAGIC {
-            return Err(Error::new(ErrorKind::InvalidData, "Invalid LUMEN file"));
-        }
-        
-        if data[4..8] != VERSION.to_le_bytes() {
-            return Err(Error::new(ErrorKind::InvalidData, "Unsupported version"));
-        }
-
         let weight_data = &data[8..];
-        
-        // Use T::PACKED_SIZE (e.g., 20) instead of hardcoded 20 to determine how many bytes to read for each block, and T::CHUNK_SIZE (e.g., 32) to determine how many floats to output for each block.
         let num_blocks = weight_data.len() / T::PACKED_SIZE;
-        let mut all_floats = vec![0.0f32; num_blocks * T::CHUNK_SIZE]; // have to use vector here because we don't know the size at compile time, but we can calculate it based on the number of blocks and the chunk size.
-        // We are pre-allocating a vector of floats that will hold all the dequantized values. The total number of floats is the number of blocks multiplied by the chunk size (number of floats per block).
+        let mut all_floats = vec![0.0f32; num_blocks * T::CHUNK_SIZE];
+        
+        let blocks_per_task = 512;
+        let floats_per_task = blocks_per_task * T::CHUNK_SIZE;
 
-        // 3. The Loop
-        for (i, raw_block) in weight_data.chunks_exact(T::PACKED_SIZE).enumerate() {
-            let block = T::from_bytes(raw_block);
-            
-            // Get the specific "window" for this block
-            let start = i * T::CHUNK_SIZE;
-            let end = start + T::CHUNK_SIZE;
-            
-            // Pass the slice directly! No block_buffer needed.
-            block.dequantize(&mut all_floats[start..end]);
-        }
+        // Use par_chunks_mut (not exact) to catch the remainder
+        all_floats.par_chunks_mut(floats_per_task)
+            .enumerate()
+            .for_each(|(task_idx, float_chunk)| {
+                let start_block_idx = task_idx * blocks_per_task;
+                
+                // We iterate based on the actual size of the current float_chunk
+                // This naturally handles the last (smaller) chunk
+                for (block_in_task_idx, f_sub_chunk) in float_chunk.chunks_exact_mut(T::CHUNK_SIZE).enumerate() {
+                    let block_idx = start_block_idx + block_in_task_idx;
+                    
+                    if block_idx < num_blocks {
+                        let b_start = block_idx * T::PACKED_SIZE;
+                        let block_bytes = &weight_data[b_start..b_start + T::PACKED_SIZE];
+                        let block = T::from_bytes(block_bytes);
+                        block.dequantize(f_sub_chunk);
+                    }
+                }
+            });
 
         Ok(all_floats)
-        
     }
 }

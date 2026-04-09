@@ -92,29 +92,51 @@ impl QuantizedBlock for BlockQ4_0 {
     }
     
     /// De-quantizes a Q4_0 block back into 32 f32 weights.
+    // fn dequantize(&self, output: &mut [f32]) {
+    //     // Safety check: ensure the buffer is the right size
+    //     if output.len() != Self::CHUNK_SIZE {
+    //         panic!("Output buffer must be exactly {} floats", Self::CHUNK_SIZE);
+    //     }
+    //     // In a hot loop, you'd usually trust the caller, but this is safer.
+    //     // let scale = self.scale;
+
+    //     for i in 0..Self::CHUNK_SIZE / 2 { // 16 iterations for 32 weights
+    //         let byte = self.weights[i];
+
+    //         // 1. Extract nibbles
+    //         let mut q0 = (byte & 0x0F) as i8;
+    //         let mut q1 = (byte >> 4) as i8;
+
+    //         // 2. Sign Extension (since we are using 4 bits to represent values from -8 to 7, we need to convert the unsigned 4-bit value back to signed without if statements.)
+    //         q0 = (q0 ^ 8) - 8;
+    //         q1 = (q1 ^ 8) - 8;
+
+    //         // 3. Write directly to the output buffer
+    //         output[i * 2]     = q0 as f32 * self.scale;
+    //         output[i * 2 + 1] = q1 as f32 * self.scale;
+    //     }
+    // }
     fn dequantize(&self, output: &mut [f32]) {
-        // Safety check: ensure the buffer is the right size
-        if output.len() != Self::CHUNK_SIZE {
-            panic!("Output buffer must be exactly {} floats", Self::CHUNK_SIZE);
-        }
-        // In a hot loop, you'd usually trust the caller, but this is safer.
         let scale = self.scale;
+        let arch = pulp::Arch::new();
 
-        for i in 0..Self::CHUNK_SIZE / 2 { // 16 iterations for 32 weights
-            let byte = self.weights[i];
+        // The 'dispatch' closure tells the compiler to optimize for the 
+        // best instructions available on the current CPU (AVX2 for your i5-6th gen).
+        arch.dispatch(|| {
+            for i in 0..Self::CHUNK_SIZE / 2 {
+                let byte = self.weights[i];
 
-            // 1. Extract nibbles
-            let mut q0 = (byte & 0x0F) as i8;
-            let mut q1 = (byte >> 4) as i8;
+                // Manual extraction (Scalar)
+                let q0 = ((byte & 0x0F) as i8 ^ 8) - 8; // Sign extension for q0
+                let q1 = ((byte >> 4) as i8 ^ 8) - 8; // Sign extension for q1
 
-            // 2. Sign Extension
-            if q0 > 7 { q0 -= 16; }
-            if q1 > 7 { q1 -= 16; }
+                // q0 = (q0 ^ 8) - 8;
+                // q1 = (q1 ^ 8) - 8;
 
-            // 3. Write directly to the output buffer
-            output[i * 2]     = q0 as f32 * scale;
-            output[i * 2 + 1] = q1 as f32 * scale;
-        }
+                output[i * 2] = q0 as f32 * scale;
+                output[i * 2 + 1] = q1 as f32 * scale;
+            }
+        });
     }
 
     /// Converts the quantized block into a byte array for storage or transmission.
