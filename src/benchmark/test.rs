@@ -18,7 +18,8 @@ impl fmt::Display for QuantReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "--- REAL MODEL TEST: {} ---\n\
+            "--- MODEL BENCHMARK---\n\
+             Model:           {}\n\
              MSE Loss:        {:.8}\n\
              Compression:     {:.2}x\n\
              Encoding Time:   {}ms\n\
