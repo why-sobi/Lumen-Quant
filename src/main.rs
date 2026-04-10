@@ -7,18 +7,16 @@ mod benchmark;
 mod cli;
 
 use file::lumen;
-use benchmark::test;
 
 fn main() -> std::io::Result<()> {
-    let mut name: String = "Nandi-Mini-150M".to_string();
-    let report = test::run_benchmark::<BlockQ4_0>(&name, &format!("models/{}.safetensors", name), &format!("lumen-models/{}_q4_0.lumen", name))?;
-    
-    name = "all-MiniLM-L6-v2".to_string();
-    let report2 = test::run_benchmark::<BlockQ4_0>(&name, &format!("models/{}.safetensors", name), &format!("lumen-models/{}_q4_0.lumen", name))?;
-    
-    println!("{}\n", report);
-    println!("{}", report2);
-    
+    println!("----------------------- NORMAL BENCHMARK -----------------------\n");
+    benchmark::test_model::<BlockQ4_0>("Nandi-Mini-150M", ".")?;
+    benchmark::test_model::<BlockQ4_0>("all-MiniLM-L6-v2", ".")?;
+
+    println!("----------------------- STREAMED BENCHMARK -----------------------\n");
+    benchmark::test_model_streamed::<BlockQ4_0>("Nandi-Mini-150M", ".")?;
+    benchmark::test_model_streamed::<BlockQ4_0>("all-MiniLM-L6-v2", ".")?;
+
     Ok(())
 }
 
