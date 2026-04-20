@@ -19,14 +19,17 @@ pub mod lumen {
         writer.write_all(&VERSION.to_le_bytes())?;
 
         let mut bytes_written = 8;
+        let mut block_buffer = vec![0u8; T::PACKED_SIZE];
 
         for chunk in loader.chunk_iterator(T::CHUNK_SIZE) { // *4 since f32 is 4 bytes and CHUNK_SIZE is in terms of number of floats (this is already handled in the chunk_iterator method, so we just pass T::CHUNK_SIZE here)
             let (_, mid, _) = unsafe { chunk.align_to::<f32>() };
             if mid.len() == T::CHUNK_SIZE {
-                let block_bytes = T::quantize(mid).as_bytes();
+                let block = T::quantize(mid);
                 
-                writer.write_all(&block_bytes)?;
-                bytes_written += block_bytes.len();
+                block.write_bytes(&mut block_buffer);
+
+                writer.write_all(&block_buffer)?;
+                bytes_written += block_buffer.len();
             }
         }
         writer.flush()?;
@@ -42,26 +45,29 @@ pub mod lumen {
         
         let blocks_per_task = 512;
         let floats_per_task = blocks_per_task * T::CHUNK_SIZE;
+        let arch = pulp::Arch::new(); // Detect CPU architecture for optimized dequantization
 
         // Use par_chunks_mut (not exact) to catch the remainder
-        all_floats.par_chunks_mut(floats_per_task)
-            .enumerate()
-            .for_each(|(task_idx, float_chunk)| {
-                let start_block_idx = task_idx * blocks_per_task;
-                
-                // We iterate based on the actual size of the current float_chunk
-                // This naturally handles the last (smaller) chunk
-                for (block_in_task_idx, f_sub_chunk) in float_chunk.chunks_exact_mut(T::CHUNK_SIZE).enumerate() {
-                    let block_idx = start_block_idx + block_in_task_idx;
+        arch.dispatch(|| {
+            all_floats.par_chunks_mut(floats_per_task)
+                .enumerate()
+                .for_each(|(task_idx, float_chunk)| {
+                    let start_block_idx = task_idx * blocks_per_task;
                     
-                    if block_idx < num_blocks {
-                        let b_start = block_idx * T::PACKED_SIZE;
-                        let block_bytes = &weight_data[b_start..b_start + T::PACKED_SIZE];
-                        let block = T::from_bytes(block_bytes);
-                        block.dequantize(f_sub_chunk);
+                    // We iterate based on the actual size of the current float_chunk
+                    // This naturally handles the last (smaller) chunk
+                    for (block_in_task_idx, f_sub_chunk) in float_chunk.chunks_exact_mut(T::CHUNK_SIZE).enumerate() {
+                        let block_idx = start_block_idx + block_in_task_idx;
+                        
+                        if block_idx < num_blocks {
+                            let b_start = block_idx * T::PACKED_SIZE;
+                            let block_bytes = &weight_data[b_start..b_start + T::PACKED_SIZE];
+                            let block = T::from_bytes(block_bytes);
+                            block.dequantize(f_sub_chunk);
+                        }
                     }
-                }
-            });
+                });
+        });
 
         Ok(all_floats)
     }

@@ -18,8 +18,10 @@ pub trait QuantizedBlock {
     // Any struct that "implements" this trait MUST have these functions.
     fn quantize(input: &[f32]) -> Self;
     fn dequantize(&self, output: &mut [f32]);
-    fn as_bytes(&self) -> Vec<u8>;
+    // #[warn(dead_code)]
+    // fn as_bytes(&self) -> Vec<u8>;
     fn from_bytes(bytes: &[u8]) -> Self;
+    fn write_bytes(&self, dest: &mut [u8]);
 }
 
 /// A quantized block of 32 weights.
@@ -41,6 +43,7 @@ impl QuantizedBlock for BlockQ4_0 {
     // also change pub weights: [u8; 16] in the struct definition to match the new packed size.
     
     /// Quantizes a slice of 32 f32s into a single Q4_0 block.
+    #[inline(always)] // This is a hot function, we want to inline it for performance.
     fn quantize(input: &[f32]) -> Self {
         // Since we are quantizing 32 weights into 16 bytes, we need to ensure the input slice has exactly 32 f32 values.
         assert_eq!(input.len(), Self::CHUNK_SIZE, "Block size must be exactly {}", Self::CHUNK_SIZE);
@@ -90,64 +93,36 @@ impl QuantizedBlock for BlockQ4_0 {
             weights: packed_weights,
         }
     }
-    
-    /// De-quantizes a Q4_0 block back into 32 f32 weights.
-    // fn dequantize(&self, output: &mut [f32]) {
-    //     // Safety check: ensure the buffer is the right size
-    //     if output.len() != Self::CHUNK_SIZE {
-    //         panic!("Output buffer must be exactly {} floats", Self::CHUNK_SIZE);
-    //     }
-    //     // In a hot loop, you'd usually trust the caller, but this is safer.
-    //     // let scale = self.scale;
 
-    //     for i in 0..Self::CHUNK_SIZE / 2 { // 16 iterations for 32 weights
-    //         let byte = self.weights[i];
-
-    //         // 1. Extract nibbles
-    //         let mut q0 = (byte & 0x0F) as i8;
-    //         let mut q1 = (byte >> 4) as i8;
-
-    //         // 2. Sign Extension (since we are using 4 bits to represent values from -8 to 7, we need to convert the unsigned 4-bit value back to signed without if statements.)
-    //         q0 = (q0 ^ 8) - 8;
-    //         q1 = (q1 ^ 8) - 8;
-
-    //         // 3. Write directly to the output buffer
-    //         output[i * 2]     = q0 as f32 * self.scale;
-    //         output[i * 2 + 1] = q1 as f32 * self.scale;
-    //     }
-    // }
+    #[inline(always)]
     fn dequantize(&self, output: &mut [f32]) {
         let scale = self.scale;
-        let arch = pulp::Arch::new();
-
-        // The 'dispatch' closure tells the compiler to optimize for the 
-        // best instructions available on the current CPU (AVX2 for your i5-6th gen).
-        arch.dispatch(|| {
-            for i in 0..Self::CHUNK_SIZE / 2 {
-                let byte = self.weights[i];
-
-                // Manual extraction (Scalar)
-                let q0 = ((byte & 0x0F) as i8 ^ 8) - 8; // Sign extension for q0
-                let q1 = ((byte >> 4) as i8 ^ 8) - 8; // Sign extension for q1
-
-                // q0 = (q0 ^ 8) - 8;
-                // q1 = (q1 ^ 8) - 8;
-
-                output[i * 2] = q0 as f32 * scale;
-                output[i * 2 + 1] = q1 as f32 * scale;
-            }
-        });
+        for i in 0..Self::CHUNK_SIZE / 2 {
+            let byte = self.weights[i];
+            let q0 = ((byte & 0x0F) as i8 ^ 8) - 8;
+            let q1 = ((byte >> 4) as i8 ^ 8) - 8;
+            
+            output[i * 2]     = q0 as f32 * scale;
+            output[i * 2 + 1] = q1 as f32 * scale;
+        }
+    }
+    
+    #[inline(always)]
+    fn write_bytes(&self, dest: &mut [u8]) {
+        assert!(dest.len() >= Self::PACKED_SIZE, "Destination buffer is too small for BlockQ4_0");
+        
+        dest[0..4].copy_from_slice(&self.scale.to_le_bytes());
+        dest[4..Self::PACKED_SIZE].copy_from_slice(&self.weights);
     }
 
     /// Converts the quantized block into a byte array for storage or transmission.
-    fn as_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(Self::PACKED_SIZE);
-        
-        // extend_from_slice simply appends two arrays of bytes to the buffer. 
-        buf.extend_from_slice(&self.scale.to_le_bytes()); // le => little endian
-        buf.extend_from_slice(&self.weights);
-        buf
-    }
+    // // fn as_bytes(&self) -> Vec<u8> {
+    //     let mut buf = Vec::with_capacity(Self::PACKED_SIZE);   
+    //     // extend_from_slice simply appends two arrays of bytes to the buffer. 
+    //     buf.extend_from_slice(&self.scale.to_le_bytes()); // le => little endian
+    //     buf.extend_from_slice(&self.weights);
+    //     buf
+    // }
 
     /// Converts the byte array back into a quantized block.
     fn from_bytes(bytes: &[u8]) -> Self {
