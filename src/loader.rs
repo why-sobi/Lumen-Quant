@@ -57,31 +57,45 @@ pub struct ModelLoader {
 
 impl ModelLoader {
     pub fn load(path: &str) -> std::io::Result<Self> {
+        // Platform-specific file open with sequential hint
+        #[cfg(windows)]
+        let file = {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_FLAG_SEQUENTIAL_SCAN: u32 = 0x08000000;
+            std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(FILE_FLAG_SEQUENTIAL_SCAN)
+                .open(path)?
+        };
+        #[cfg(not(windows))]
         let file = File::open(path)?;
-        let mmap = unsafe { Mmap::map(&file)? };
-        let extension = path.split('.').last().unwrap_or("");
 
+        let mmap = unsafe { Mmap::map(&file)? };
+
+        #[cfg(unix)]
+        {
+            use memmap2::Advice;
+            let _ = mmap.advise(Advice::Sequential);
+        }
+
+        let extension = path.split('.').last().unwrap_or("");
         let mut tensor_ranges = Vec::new();
 
         match extension {
             "safetensor" | "safetensors" => {
-                let st = SafeTensors::deserialize(&mmap).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{:?}", e)))?;
-            
-                // 3. GET THE OFFSETS
+                let st = SafeTensors::deserialize(&mmap).map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{:?}", e))
+                })?;
                 for (_, view) in st.tensors() {
-                    // Since view.data() is a slice of the mmap we passed in...
-                    // We can find its position relative to the start of that slice!
                     let slice_start_ptr = view.data().as_ptr() as usize;
                     let mmap_start_ptr = mmap.as_ptr() as usize;
-                    
                     let absolute_start = slice_start_ptr - mmap_start_ptr;
                     let absolute_end = absolute_start + view.data().len();
-
                     tensor_ranges.push((absolute_start, absolute_end));
                 }
             }
-            "lumen" => { tensor_ranges.push((8, mmap.len())); } // starting from 8 to skip the header (magic + version)
-            "bin"   => { tensor_ranges.push((0, mmap.len())); } // this is simply a dump file with no header, so we take the whole file as one big tensor
+            "lumen" => { tensor_ranges.push((8, mmap.len())); }
+            "bin"   => { tensor_ranges.push((0, mmap.len())); }
             _       => { return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Unsupported file format")); }
         }
 

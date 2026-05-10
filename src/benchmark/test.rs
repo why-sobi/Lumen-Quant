@@ -1,4 +1,4 @@
-use crate::lumen;
+use crate::file;
 use crate::loader::ModelLoader;
 use crate::quant::QuantizedBlock;
 use std::time::Instant;
@@ -32,7 +32,7 @@ impl fmt::Display for QuantReport {
     }
 }
 
-pub fn run_benchmark<T: QuantizedBlock>(name: &str, input_path: &str, output_path: &str) -> std::io::Result<QuantReport> {
+pub fn run_benchmark<T: QuantizedBlock + Send + Sync>(name: &str, input_path: &str, output_path: &str) -> std::io::Result<QuantReport> {
     let loader = ModelLoader::load(input_path)?;
 
     // 1. Gather Original Data
@@ -43,7 +43,7 @@ pub fn run_benchmark<T: QuantizedBlock>(name: &str, input_path: &str, output_pat
 
     // 2. Encode
     let start_enc = Instant::now();
-    let bytes_written = lumen::encode::<T>(&loader, output_path)?;
+    let bytes_written = file::encode::<T>(&loader, output_path)?;
     let encoding_time = start_enc.elapsed().as_millis();
 
     let _sum: f32 = original_floats.iter().sum();
@@ -54,7 +54,7 @@ pub fn run_benchmark<T: QuantizedBlock>(name: &str, input_path: &str, output_pat
     let _warmup = std::hint::black_box(lumen_loader.get_data().iter().sum::<u8>());
  
     let start_dec = Instant::now();
-    let decoded_floats = lumen::decode::<T>(&lumen_loader)?;
+    let decoded_floats = file::decode::<T>(&lumen_loader)?;
     let duration = start_dec.elapsed();
     let decoding_time_ms = duration.as_millis();
 
