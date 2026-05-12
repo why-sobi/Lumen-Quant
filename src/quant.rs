@@ -31,15 +31,15 @@ pub trait QuantizedBlock {
 /// Total size: 2 bytes (f16 scale) + 16 bytes (16 * 1 byte) = 18 bytes.
 pub struct BlockQ4_0 {
     pub scale: f16,        // The scaling factor for this block
-    pub weights: [u8; 32], // 32 weights packed into 16 bytes
+    pub weights: [u8; 16], // 32 weights packed into 16 bytes
 
     // [u8; 16] means an array of u8 (unsigned 8-bit integers = 1 byte) with a fixed length of 16. 
     // we are using 1 byte to store 2 weights (4 bits each) so 16 bytes can store 32 weights.
 }
 
 impl QuantizedBlock for BlockQ4_0 {
-    const CHUNK_SIZE: usize = 64;
-    const PACKED_SIZE: usize = 34; // 2 (scale) + 16 (weights)
+    const CHUNK_SIZE: usize = 32;
+    const PACKED_SIZE: usize = 18; // 2 (scale) + 16 (weights)
 
     // const CHUNK_SIZE: usize = 32;
     // const PACKED_SIZE: usize = 18; // 2 (scale) + 16 (weights)
