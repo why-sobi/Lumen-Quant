@@ -99,12 +99,16 @@ impl ModelLoader {
                 
                 // Use a GGUF parser here. Manual parsing is tricky due to 
                 // variable-length strings in the header.
-                let container = gguf_rs::get_gguf_container(path).map_err(|e| {
+                let mut container = gguf_rs::get_gguf_container(path).map_err(|e| {
                     std::io::Error::new(std::io::ErrorKind::InvalidData, format!("GGUF Error: {}", e))
                 })?;
 
+                let model = container.decode().map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, format!("GGUF Decode Error: {}", e))
+                })?;
+
                 // In GGUF, tensors are stored at an offset relative to the end of the header
-                for tensor in container.tensors {
+                for tensor in model.tensors() {
                     // Using the struct fields from your prompt: offset and size
                     let absolute_start = tensor.offset as usize;
                     let absolute_end = absolute_start + tensor.size as usize;

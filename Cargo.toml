@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 clap = {version = "4.6.0", features = ["derive"]}
-gguf-rs = { version = "0.1.7", features = ["mmap"] }
+gguf-rs = "0.1.7"
 half = "2.7.1"
 memmap2 = "0.9.10"
 pulp = "0.22.2"
