@@ -1,50 +1,52 @@
-pub mod encoder;
 
 // To find ModelLoader, we need to look into the loader module, we do that by using "crate" which essentially asks the main.rs file 
 // to look into the loader.rs file and find the ModelLoader struct and its associated methods and bring it into local scope.
+use std::io::{Result};
+use std::io::Write;
+use rayon::prelude::*; // for parallel processing in decode
 
+pub mod encoder;
+pub mod block_buffer;
 use crate::loader::ModelLoader;
 use crate::quant::{ QuantizedBlock }; // to make generic encoder/decoder work we need this trait in scope
-use std::io::{Result};
-use rayon::prelude::*; // for parallel processing in decode
-use std::io::{BufWriter, Write};
+
 
 const MAGIC: &[u8; 4] = b"LUMN";
 const VERSION: u32 = 2056; // Arbitrary version number for our format
 
 
 pub fn encode<T: QuantizedBlock + Send + Sync>(loader: &ModelLoader, output_path: &str) -> Result<usize> {
-    let file = std::fs::File::create(output_path)?;
-    let mut writer = BufWriter::with_capacity(8 * 1024 * 1024, file);
-    writer.write_all(MAGIC)?;
-    writer.write_all(&VERSION.to_le_bytes())?;
+    let mut file = std::fs::File::create(output_path)?;
+    
+    // 1. Write the "Formal LUMN" Header directly to the file first
+    file.write_all(MAGIC)?;
+    file.write_all(&VERSION.to_le_bytes())?;
 
     #[cfg(target_arch = "x86_64")]
     {
+        // Use more than 2 threads for parallel to justify the channel overhead
         if is_x86_feature_detected!("avx2") && rayon::current_num_threads() > 2 {
-            // return encode_avx2_parallel::<T>(loader, &mut writer);
             println!("[ENCODER] RUNNING AVX2 PARALLEL");
-            return encoder::encode_parallel::<T>(loader, &mut writer);
+            return encoder::encode_parallel::<T>(loader, file);
         }
+        
         if is_x86_feature_detected!("avx2") {
-            // return encode_avx2_serial::<T>(loader, &mut writer);
             println!("[ENCODER] RUNNING AVX2 SCALAR");
-            return encoder::encode_scalar::<T>(loader, &mut writer);
-        }
-        // if is_x86_feature_detected!("sse4.1") {
-        //     return encode_sse41_serial::<T>(loader, &mut writer);
-        // }
-    }
-    #[cfg(target_arch = "aarch64")]
-    {
-        if std::arch::is_aarch64_feature_detected!("neon") {
-            return encode_neon_serial::<T>(loader, &mut writer);
+            return encoder::encode_scalar::<T>(loader, file);
         }
     }
 
-    // scalar fallback — works on everything
+    #[cfg(target_arch = "aarch64")]
+    {
+        if std::arch::is_aarch64_feature_detected!("neon") {
+            // Assuming neon_serial is also refactored to take ownership of file
+            return encoder::encode_neon_serial::<T>(loader, file);
+        }
+    }
+
+    // Scalar fallback — works on everything
     println!("[ENCODER] FALLBACK TO SCALAR");
-    encoder::encode_scalar::<T>(loader, &mut writer)
+    encoder::encode_scalar::<T>(loader, file)
 }
 
 /// DECODE: Takes a .lumen loader and returns a flat Vec of original floats

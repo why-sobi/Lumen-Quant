@@ -1,40 +1,40 @@
-use crate::loader::ModelLoader;
-use crate::quant::{ QuantizedBlock }; // to make generic encoder/decoder work we need this trait in scope
-
 use std::fs::File;
-use std::io::{BufWriter, Write, Result};
+use std::io::Result;
+use std::sync::mpsc::sync_channel;
 use std::thread;
-use std::sync::{mpsc::sync_channel};
 
+use crate::loader::ModelLoader;
+use crate::quant::QuantizedBlock;
+use super::block_buffer::BlockBuffer; // Assuming the import we discussed
 
-/// ENCODE: Takes a raw weights loader and spits out a .lumen file
-pub fn encode_scalar<T: QuantizedBlock>(loader: &ModelLoader, writer: &mut BufWriter<File>) -> Result<usize> {
+pub fn encode_scalar<T: QuantizedBlock>(loader: &ModelLoader, writer: File) -> Result<usize> {
+    let mut bytes_written = 8; // MAGIC + VERSION
     
-    let mut bytes_written = 8;
-    let mut block_buffer = vec![0u8; T::PACKED_SIZE];
+    // Initialize your new BlockBuffer
+    // block_count 1024 is a good middle ground for L3 cache/RAM staging
+    let mut buffer = BlockBuffer::new(writer, 1024, T::PACKED_SIZE);
 
-    for chunk in loader.chunk_iterator(T::CHUNK_SIZE) { // *4 since f32 is 4 bytes and CHUNK_SIZE is in terms of number of floats (this is already handled in the chunk_iterator method, so we just pass T::CHUNK_SIZE here)
+    for chunk in loader.chunk_iterator(T::CHUNK_SIZE) {
         let (_, mid, _) = unsafe { chunk.align_to::<f32>() };
         if mid.len() == T::CHUNK_SIZE {
             let block = T::quantize(mid);
             
-            block.write_bytes(&mut block_buffer);
-
-            writer.write_all(&block_buffer)?;
-            bytes_written += block_buffer.len();
+            // Abstracted logic: fills internal Vec, dispatches when full
+            buffer.fill_and_dispatch(block)?;
+            bytes_written += T::PACKED_SIZE;
         }
     }
-    writer.flush()?;
+
+    buffer.finalize()?;
     Ok(bytes_written)
 }
 
-pub fn encode_parallel<T>(loader: &ModelLoader, writer: &mut BufWriter<File>) -> Result<usize> 
+pub fn encode_parallel<T>(loader: &ModelLoader, writer: File) -> Result<usize> 
 where 
     T: QuantizedBlock + Send
 {
-    let (tx, rx) = sync_channel::<T>(10000); // Increased buffer
+    let (tx, rx) = sync_channel::<T>(10000);
 
-    // Scoped thread doesn't need 'static!
     thread::scope(|s| { 
         // --- PRODUCER ---
         s.spawn(|| {
@@ -45,19 +45,20 @@ where
                     if tx.send(block).is_err() { break; }
                 }
             }
-            drop(tx); // Ensure sender drops so rx loop terminates
+            drop(tx); 
         });
 
-        // --- CONSUMER (Main Thread logic inside scope) ---
+        // --- CONSUMER ---
         let mut bytes_written = 8;
-        let mut block_buffer = vec![0u8; T::PACKED_SIZE];
+        let mut buffer = BlockBuffer::new(writer, 1024, T::PACKED_SIZE);
 
         for block in rx {
-            block.write_bytes(&mut block_buffer);
-            writer.write_all(&block_buffer)?;
-            bytes_written += block_buffer.len();
+            // Logic remains identical to scalar, but consuming from the channel
+            buffer.fill_and_dispatch(block)?;
+            bytes_written += T::PACKED_SIZE;
         }
         
+        buffer.finalize()?;
         Ok(bytes_written)
     })
 }

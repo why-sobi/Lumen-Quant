@@ -1,3 +1,6 @@
+use std::io::{BufWriter, Write};
+use crate::quant::QuantizedBlock;
+
 pub struct BlockBuffer<W: Write> {
     writer: BufWriter<W>,
     data: Vec<u8>,
