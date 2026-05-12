@@ -3,9 +3,8 @@
 //! specifically managing MMap and Cache-Line iteration.
 
 use memmap2::Mmap;
-use std::fs::File;
 use safetensors::SafeTensors; // for .safetensor model files
-
+use gguf_rs; // for .gguf model files
 pub struct ChunkIterator<'a> {
     // The 'a tells the compiler that this struct has reference to some other 
     // data hence do not delete this until the data is deleted solving the dangling reference problem
@@ -91,6 +90,25 @@ impl ModelLoader {
                     let mmap_start_ptr = mmap.as_ptr() as usize;
                     let absolute_start = slice_start_ptr - mmap_start_ptr;
                     let absolute_end = absolute_start + view.data().len();
+                    tensor_ranges.push((absolute_start, absolute_end));
+                }
+            }
+            "gguf" => {
+                // GGUF has a specific header format: [Magic][Version][TensorCount][KVCount]
+                // Then KVs, then Tensor Infos (which contain the offsets).
+                
+                // Use a GGUF parser here. Manual parsing is tricky due to 
+                // variable-length strings in the header.
+                let container = gguf_rs::get_gguf_container(path).map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, format!("GGUF Error: {}", e))
+                })?;
+
+                // In GGUF, tensors are stored at an offset relative to the end of the header
+                for tensor in container.tensors {
+                    // Using the struct fields from your prompt: offset and size
+                    let absolute_start = tensor.offset as usize;
+                    let absolute_end = absolute_start + tensor.size as usize;
+                    
                     tensor_ranges.push((absolute_start, absolute_end));
                 }
             }

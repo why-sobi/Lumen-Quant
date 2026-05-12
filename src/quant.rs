@@ -3,6 +3,9 @@
 //! This module contains the mathematical logic for transforming f32 weights
 //! into 4-bit compressed representations.
 
+use half::f16;
+use std::mem;
+
 pub trait QuantizedBlock { 
     // This gives us a structure how we'll define all our quantization schemes (Q4_0, Q4_1, etc). 
     // It ensures consistency and makes it easy to add new schemes in the future.
@@ -25,9 +28,9 @@ pub trait QuantizedBlock {
 }
 
 /// A quantized block of 32 weights.
-/// Total size: 4 bytes (f32 scale) + 16 bytes (16 * 1 byte) = 20 bytes.
+/// Total size: 2 bytes (f16 scale) + 16 bytes (16 * 1 byte) = 18 bytes.
 pub struct BlockQ4_0 {
-    pub scale: f32,       // The scaling factor for this block
+    pub scale: f16,        // The scaling factor for this block
     pub weights: [u8; 32], // 32 weights packed into 16 bytes
 
     // [u8; 16] means an array of u8 (unsigned 8-bit integers = 1 byte) with a fixed length of 16. 
@@ -36,10 +39,10 @@ pub struct BlockQ4_0 {
 
 impl QuantizedBlock for BlockQ4_0 {
     const CHUNK_SIZE: usize = 64;
-    const PACKED_SIZE: usize = 36; // 4 (scale) + 16 (weights)
+    const PACKED_SIZE: usize = 34; // 2 (scale) + 16 (weights)
 
     // const CHUNK_SIZE: usize = 32;
-    // const PACKED_SIZE: usize = 20; // 4 (scale) + 16 (weights)
+    // const PACKED_SIZE: usize = 18; // 2 (scale) + 16 (weights)
     // also change pub weights: [u8; 16] in the struct definition to match the new packed size.
     
     /// Quantizes a slice of 32 f32s into a single Q4_0 block.
@@ -52,7 +55,6 @@ impl QuantizedBlock for BlockQ4_0 {
         let max_abs = input.iter()
                 .map(|&val| val.abs())
                 .fold(0.0f32, f32::max);
-
 
         // 2. Calculate Scale
         let scale = max_abs / 8.0; // We divide by 8 because we want to map the range [-max_abs, max_abs] to [-8, 7] (4 bits)
@@ -89,7 +91,7 @@ impl QuantizedBlock for BlockQ4_0 {
         }
 
         BlockQ4_0 {
-            scale,
+            scale: f16::from_f32(scale),
             weights: packed_weights,
         }
     }
@@ -102,8 +104,8 @@ impl QuantizedBlock for BlockQ4_0 {
             let q0 = ((byte & 0x0F) as i8 ^ 8) - 8;
             let q1 = ((byte >> 4) as i8 ^ 8) - 8;
             
-            output[i * 2]     = q0 as f32 * scale;
-            output[i * 2 + 1] = q1 as f32 * scale;
+            output[i * 2]     = q0 as f32 * scale.to_f32();
+            output[i * 2 + 1] = q1 as f32 * scale.to_f32();
         }
     }
     
@@ -111,8 +113,8 @@ impl QuantizedBlock for BlockQ4_0 {
     fn write_bytes(&self, dest: &mut [u8]) {
         assert!(dest.len() >= Self::PACKED_SIZE, "Destination buffer is too small for BlockQ4_0");
         
-        dest[0..4].copy_from_slice(&self.scale.to_le_bytes());
-        dest[4..Self::PACKED_SIZE].copy_from_slice(&self.weights);
+        dest[0..mem::size_of_val(&self.scale)].copy_from_slice(&self.scale.to_le_bytes());
+        dest[mem::size_of_val(&self.scale)..Self::PACKED_SIZE].copy_from_slice(&self.weights);
     }
 
     /// Converts the quantized block into a byte array for storage or transmission.
@@ -128,9 +130,9 @@ impl QuantizedBlock for BlockQ4_0 {
     fn from_bytes(bytes: &[u8]) -> Self {
         assert_eq!(bytes.len(), Self::PACKED_SIZE, "Invalid byte length for BlockQ4_0");
 
-        let scale = f32::from_le_bytes(bytes[0..4].try_into().unwrap());
+        let scale = f16::from_le_bytes(bytes[0..2].try_into().unwrap());
         let mut weights = [0u8; Self::CHUNK_SIZE / 2]; // 16 bytes for 32 weights
-        weights.copy_from_slice(&bytes[4..Self::PACKED_SIZE]);
+        weights.copy_from_slice(&bytes[2..Self::PACKED_SIZE]);
         
         BlockQ4_0 { scale, weights }
     }
