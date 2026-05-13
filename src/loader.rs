@@ -116,7 +116,34 @@ impl ModelLoader {
                     tensor_ranges.push((absolute_start, absolute_end));
                 }
             }
-            "lumen" => { tensor_ranges.push((8, mmap.len())); }
+            "lumen" => {
+                if mmap.len() <= 12 || &mmap[0..4] != b"LUMN" {
+                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid LUMEN file: Missing magic header"));
+                }
+                let tensor_count = u32::from_le_bytes(mmap[8..12].try_into().unwrap()) as usize;
+                
+                // Calculate where the header + index ends
+                let index_end = 12 + (tensor_count * 28);
+                // Find the aligned start of the first tensor
+                let mut current_lumn_offset = (index_end + 31) & !31;
+
+                for i in 0..tensor_count {
+                    let entry_start = 12 + (i * 28);
+                    
+                    // Read the LumnSize (the 4th field in your 28-byte entry)
+                    let lumn_size = u64::from_le_bytes(
+                        mmap[entry_start + 20..entry_start + 28].try_into().unwrap()
+                    ) as usize;
+
+                    let absolute_start = current_lumn_offset;
+                    let absolute_end = absolute_start + lumn_size;
+
+                    tensor_ranges.push((absolute_start, absolute_end));
+
+                    // Move the pointer for the next tensor
+                    current_lumn_offset = absolute_end;
+                }
+            }
             "bin"   => { tensor_ranges.push((0, mmap.len())); }
             _       => { return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Unsupported file format")); }
         }

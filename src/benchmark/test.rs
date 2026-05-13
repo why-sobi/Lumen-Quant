@@ -1,3 +1,4 @@
+use std::fs;
 use crate::file;
 use crate::loader::ModelLoader;
 use crate::quant::QuantizedBlock;
@@ -64,8 +65,8 @@ pub fn run_benchmark<T: QuantizedBlock + Send + Sync>(name: &str, input_path: &s
         .map(|(o, d)| (o - d).powi(2))
         .sum::<f32>() / original_floats.len() as f32;
 
-    let compression_ratio = (original_floats.len() as f32 * 4.0) / (bytes_written as f32);
-    
+    let compression_ratio = fs::metadata(input_path)?.len() as f32 / fs::metadata(output_path)?.len() as f32;
+
     // Throughput based on the compressed data read from "disk/mmap"
     let throughput = (bytes_written as f64 / 1_000_000_000.0) / duration.as_secs_f64();
 
