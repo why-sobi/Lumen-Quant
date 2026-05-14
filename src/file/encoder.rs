@@ -4,7 +4,7 @@ use std::sync::mpsc::sync_channel;
 use std::thread;
 
 use crate::loader::ModelLoader;
-use crate::quant::QuantizedBlock;
+use crate::quant::block::QuantizedBlock;
 use super::block_buffer::BlockBuffer; // Assuming the import we discussed
 
 pub fn encode_scalar<T: QuantizedBlock>(loader: &ModelLoader, writer: File) -> Result<usize> {

@@ -1,5 +1,5 @@
 use std::io::{BufWriter, Write};
-use crate::quant::QuantizedBlock;
+use crate::quant::block::QuantizedBlock;
 
 pub struct BlockBuffer<W: Write> {
     writer: BufWriter<W>,

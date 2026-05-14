@@ -7,7 +7,7 @@ use rayon::prelude::*; // for parallel processing in decode
 pub mod encoder;
 pub mod block_buffer;
 use crate::loader::ModelLoader;
-use crate::quant::{ QuantizedBlock }; // to make generic encoder/decoder work we need this trait in scope
+use crate::quant::{ block::QuantizedBlock }; // to make generic encoder/decoder work we need this trait in scope
 
 
 const MAGIC: &[u8; 4] = b"LUMN";

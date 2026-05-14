@@ -1,10 +1,11 @@
 use std::fs;
-use crate::file;
-use crate::loader::ModelLoader;
-use crate::quant::QuantizedBlock;
 use std::time::Instant;
 use std::fmt;
 use rayon::prelude::*;
+
+use crate::file;
+use crate::loader::ModelLoader;
+use crate::quant::block::QuantizedBlock;
 
 pub struct QuantReport {
     pub name: String,
