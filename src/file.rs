@@ -92,37 +92,29 @@ pub fn decode<T: QuantizedBlock>(loader: &ModelLoader) -> Result<Vec<f32>> {
     let mut all_floats = vec![0.0f32; total_elements];
     let mut current_float_offset = 0;
 
+    let decode_fn = T::dispatch_decode_fn();
+
     // 2. Process each tensor range individually
     for &(start, end) in &loader.tensor_ranges {
         let weight_data = &data[start..end];
         let num_blocks = weight_data.len() / T::PACKED_SIZE;
         let num_floats = num_blocks * T::CHUNK_SIZE;
 
-        // Slice out the part of all_floats that belongs to this tensor
         let float_slice = &mut all_floats[current_float_offset..current_float_offset + num_floats];
 
-        let blocks_per_task = 512;
-        let floats_per_task = blocks_per_task * T::CHUNK_SIZE;
-        let arch = pulp::Arch::new();
-
-        arch.dispatch(|| {
-            float_slice.par_chunks_mut(floats_per_task)
-                .enumerate()
-                .for_each(|(task_idx, float_chunk)| {
-                    let start_block_idx = task_idx * blocks_per_task;
+        // Rayon handles the threading, your dispatch_fn handles the speed
+        float_slice.par_chunks_mut(1024 * T::CHUNK_SIZE) // Increased chunk size for efficiency
+            .enumerate()
+            .for_each(|(task_idx, float_chunk)| {
+                let start_byte = task_idx * (1024 * T::PACKED_SIZE);
+                
+                for (i, f_sub_chunk) in float_chunk.chunks_exact_mut(T::CHUNK_SIZE).enumerate() {
+                    let b_start = start_byte + (i * T::PACKED_SIZE);
                     
-                    for (block_in_task_idx, f_sub_chunk) in float_chunk.chunks_exact_mut(T::CHUNK_SIZE).enumerate() {
-                        let block_idx = start_block_idx + block_in_task_idx;
-                        
-                        if block_idx < num_blocks {
-                            let b_start = block_idx * T::PACKED_SIZE;
-                            let block_bytes = &weight_data[b_start..b_start + T::PACKED_SIZE];
-                            let block = T::from_bytes(block_bytes);
-                            block.dequantize(f_sub_chunk);
-                        }
-                    }
-                });
-        });
+                    // Direct call to the optimized kernel
+                    unsafe { decode_fn(&weight_data[b_start..b_start + T::PACKED_SIZE], f_sub_chunk); }
+                }
+            });
 
         current_float_offset += num_floats;
     }

@@ -7,17 +7,17 @@ mod benchmark;
 mod cli;
 
 fn main() -> std::io::Result<()> {
-    // println!("----------------------- NORMAL BENCHMARK -----------------------\n");
-    // benchmark::test_model::<BlockQ4_0>("Nandi-Mini-150M", ".")?;
-    // benchmark::test_model::<BlockQ4_0>("all-MiniLM-L6-v2", ".")?;
-    // benchmark::test_model::<BlockQ4_0>("Qwen2-1.5B", ".")?;
+    println!("----------------------- NORMAL BENCHMARK -----------------------\n");
+    benchmark::test_model::<BlockQ4_0>("Nandi-Mini-150M", ".")?;
+    benchmark::test_model::<BlockQ4_0>("all-MiniLM-L6-v2", ".")?;
+    benchmark::test_model::<BlockQ4_0>("Qwen2-1.5B", ".")?;
 
-    // println!("----------------------- STREAMED BENCHMARK -----------------------\n");
-    // benchmark::test_model_streamed::<BlockQ4_0>("Nandi-Mini-150M", ".")?;
-    // benchmark::test_model_streamed::<BlockQ4_0>("all-MiniLM-L6-v2", ".")?;
-    // benchmark::test_model_streamed::<BlockQ4_0>("Qwen2-1.5B", ".")?;
+    println!("----------------------- STREAMED BENCHMARK -----------------------\n");
+    benchmark::test_model_streamed::<BlockQ4_0>("Nandi-Mini-150M", ".")?;
+    benchmark::test_model_streamed::<BlockQ4_0>("all-MiniLM-L6-v2", ".")?;
+    benchmark::test_model_streamed::<BlockQ4_0>("Qwen2-1.5B", ".")?;
 
-    benchmark::decode_test::test_decode::<BlockQ4_0>("lumen-models/Qwen2-1.5B_q4_0.lumen")?;
+    // benchmark::decode_test::test_decode::<BlockQ4_0>("lumen-models/Qwen2-1.5B_q4_0.lumen")?;
 
     Ok(())
 }

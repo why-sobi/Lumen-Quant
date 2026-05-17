@@ -87,59 +87,56 @@ pub fn run_benchmark_streamed<T: QuantizedBlock + Send + Sync>(
 ) -> std::io::Result<QuantReport> {
     let loader = ModelLoader::load(input_path)?;
     
-    // 1. PRE-ENCODE (Timed)
-    // We'll collect into a Vec<T> to simulate the data that would be on disk.
+    // 1. PRE-ENCODE
     let start_enc = Instant::now();
     let quantized_data: Vec<T> = loader.chunk_iterator(T::CHUNK_SIZE)
         .map(|chunk| T::quantize(chunk))
         .collect();
     let encoding_time = start_enc.elapsed();
 
-    // 2. PRE-WARM (The "SSD-Killer")
-    // We touch the quantized data to ensure it's in the L3 cache/RAM
     let _ = std::hint::black_box(quantized_data.iter().count());
 
-    // 3. DECODE (Timed & Parallel)
-    // This is the core "Inference Speed" test.
+    // 2. PREPARE DECODE
     let mut output_buffer = vec![0.0f32; quantized_data.len() * T::CHUNK_SIZE];
+    
+    // Get the optimized decode function for this architecture
+    let decode_fn = T::dispatch_decode_fn();
     
     let start_dec = Instant::now();
     
+    // 3. DECODE (Timed & Parallel)
     output_buffer.par_chunks_mut(T::CHUNK_SIZE)
         .zip(quantized_data.par_iter())
-        .for_each(|(out_chunk, block): (&mut [f32], &T)| { // Added explicit types here
-            block.dequantize(out_chunk);
+        .for_each(|(out_chunk, block)| { 
+            // We need to get the block as bytes to use the dispatch_fn
+            // Or use a temporary buffer. 
+            let mut tmp_bytes = vec![0u8; T::PACKED_SIZE];
+            block.write_bytes(&mut tmp_bytes);
+            unsafe { decode_fn(&tmp_bytes, out_chunk); }
     });
         
     let decoding_time = start_dec.elapsed();
 
-    // 4. MSE Calculation (Post-Timer)
-    // We stream the original loader again to compare against our output_buffer
+    // 4. MSE Calculation
     let mut total_mse: f64 = 0.0;
     let mut idx = 0;
     for chunk in loader.chunk_iterator(T::CHUNK_SIZE) {
-        let chunk: &[f32] = chunk;
         let output_chunk = &output_buffer[idx..idx + T::CHUNK_SIZE];
-        
-        // Explicitly annotate o and d
-        for (o, d) in chunk.iter().zip(output_chunk.iter()) {
-            total_mse += (*o as f64 - *d as f64).powi(2);
+        for (&o, &d) in chunk.iter().zip(output_chunk.iter()) {
+            total_mse += (o as f64 - d as f64).powi(2);
         }
         idx += T::CHUNK_SIZE;
     }
 
-    // 5. Final Stats
     let total_elements = output_buffer.len();
-    let final_mse = (total_mse / total_elements as f64) as f32;
     let f32_size = total_elements * 4;
-    let quantized_size = quantized_data.len() * std::mem::size_of::<T>();
+    let quantized_size = quantized_data.len() * T::PACKED_SIZE; // Use PACKED_SIZE for actual ratio
     
-    // Throughput based on Decompressed f32 data
-    let throughput = (f32_size as f64 / 1_000_000_000.0) / decoding_time.as_secs_f64();
+    let throughput = (f32_size as f64 / 1e9) / decoding_time.as_secs_f64();
 
     Ok(QuantReport {
         name: name.to_string(),
-        mse: final_mse,
+        mse: (total_mse / total_elements as f64) as f32,
         compression_ratio: f32_size as f32 / quantized_size as f32,
         encoding_time_ms: encoding_time.as_millis() as u128,
         decoding_time_ms: decoding_time.as_millis() as u128,

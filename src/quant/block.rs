@@ -12,9 +12,13 @@ pub trait QuantizedBlock {
 
     // Any struct that "implements" this trait MUST have these functions.
     fn quantize(input: &[f32]) -> Self;
-    fn dequantize(&self, output: &mut [f32]);
-    // #[warn(dead_code)]
-    // fn as_bytes(&self) -> Vec<u8>;
     fn from_bytes(bytes: &[u8]) -> Self;
     fn write_bytes(&self, dest: &mut [u8]);
+    
+    // Dispatcher function for decoding
+    fn dispatch_decode_fn() -> unsafe fn(&[u8], &mut [f32]); 
+    
+    // dequantize functions
+    unsafe fn dequantize(bytes: &[u8], output: &mut [f32]);
+    unsafe fn dequantize_avx2(bytes: &[u8], output: &mut [f32]);
 }
